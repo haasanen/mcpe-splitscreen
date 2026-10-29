@@ -38,9 +38,9 @@ jobs:
     - name: Scripts lint
       run: |
         for f in bin/*; do
-          case "$(head -c 20 "$f" | head -1)" in
-            "#!/usr/bin/env bash"|\#!*/bash) bash -n "$f" ;;
+          case "$(head -1 "$f")" in
             *python*) python3 -m py_compile "$f" ;;
+            *bash*) bash -n "$f" ;;
             *) echo "unknown shebang in $f"; head -1 "$f"; exit 1 ;;
           esac
         done
