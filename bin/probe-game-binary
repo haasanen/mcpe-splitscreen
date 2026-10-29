@@ -36,13 +36,31 @@ DEFAULTS = [
     os.path.expanduser('~/.var/app/io.github.mcalgs.mcpelauncher/data/mcpelauncher/libminecraftpe.so'),
 ]
 
+def discover():
+    """Official launcher layout: newest versions/<ver>/lib*/<abi>/libminecraftpe.so wins."""
+    roots = [os.path.expanduser('~/.local/share/mcpelauncher/versions'),
+             os.path.expanduser('~/.var/app/io.github.mcalgs.mcpelauncher/data/mcpelauncher/versions')]
+    found = []
+    for root in roots:
+        for dirpath, _, files in os.walk(root):
+            if 'libminecraftpe.so' in files:
+                found.append(os.path.join(dirpath, 'libminecraftpe.so'))
+    return sorted(found)
+
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else next((p for p in DEFAULTS if p and os.path.isfile(p)), None)
-    if not path:
-        sys.exit('libminecraftpe.so not found — pass its path or set MCPE_GAME_DIR.\n'
-                 'It lives in the game data dir after the launcher downloads the game:\n  '
-                 + '\n  '.join(p for p in DEFAULTS if p))
+    if len(sys.argv) > 1:
+        path = sys.argv[1]
+    else:
+        cand = [p for p in DEFAULTS if p and os.path.isfile(p)] or discover()
+        if not cand:
+            sys.exit('libminecraftpe.so not found — pass its path or set MCPE_GAME_DIR.\n'
+                     'It lives in the game data dir after the launcher downloads the game:\n  '
+                     + '\n  '.join(p for p in DEFAULTS if p))
+        if len(cand) > 1:
+            print('multiple game binaries found (probing the newest):')
+            for c in cand: print('  ', c)
+        path = cand[-1]
     size = os.path.getsize(path)
     print(f'probing {path} ({size/1e6:.0f} MB)')
 
