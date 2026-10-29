@@ -87,8 +87,7 @@ def start_instance(name):
                          start_new_session=True,
                          stdout=open(os.path.join(INST, name, 'console.log'), 'a'),
                          stderr=subprocess.STDOUT)
-    open(pidfile(name), 'w').write(str(p.pid))
-    return f'{name} started (pid {p.pid})'
+    return f'{name} started (pid tracked by mcpe-instance)'
 
 
 def stop_instance(name):
@@ -96,7 +95,7 @@ def stop_instance(name):
     if not pid:
         return f'{name} not running'
     try:
-        os.killpg(pid, signal.SIGTERM)  # start_new_session -> pgid == pid
+        os.kill(pid, signal.SIGTERM)  # pid file holds the client process itself
     except ProcessLookupError:
         pass
     try:

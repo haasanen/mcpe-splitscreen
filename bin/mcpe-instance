@@ -32,6 +32,10 @@ ARGS=(--data-dir "$DATA/data" --cache-dir "$DATA/cache")
 [ -n "$GAME_DIR" ] && ARGS+=(--game-dir "$GAME_DIR")
 if [ -n "$GEOM" ]; then ARGS+=(--width "${GEOM%%x*}" --height "${GEOM##*x}"); fi
 echo "instance $NAME: pad=$PAD_REAL allowed=$ALLOW"
-exec env LD_PRELOAD="$HERE/shim/joyfilter.so${LD_PRELOAD:+:$LD_PRELOAD}" \
-     MCPE_JOY_ALLOWED="$ALLOW" \
-     "$BIN" "${ARGS[@]}" "$@" 2>&1 | tee -a "$DATA/logs/run.log"
+env LD_PRELOAD="$HERE/shim/joyfilter.so${LD_PRELOAD:+:$LD_PRELOAD}" \
+    MCPE_JOY_ALLOWED="$ALLOW" \
+    "$BIN" "${ARGS[@]}" "$@" >> "$DATA/logs/run.log" 2>&1 &
+CLIENT=$!
+echo "$CLIENT" > "$DATA/pid"      # window-owning process (tiling + status use this)
+trap 'rm -f "$DATA/pid"' EXIT
+wait "$CLIENT" || true

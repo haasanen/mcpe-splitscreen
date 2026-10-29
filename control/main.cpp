@@ -184,11 +184,11 @@ int main(int argc, char** argv) {
         }
         writeConf(in.name, padPath, in.size);
         QProcess::startDetached(root() + "/bin/mcpe-instance", {in.name});
-        QTimer::singleShot(500, [&in] { tileWindow(in); });
+        QTimer::singleShot(500, [&in, &tileWindow] { tileWindow(in); });
     };
     auto stopOne = [&](int i) {
         qint64 pid = readPid(insts[i].name);
-        if (alive(pid)) QProcess::startDetached("/bin/kill", {"-" + QString::number(pid)});
+        if (alive(pid)) QProcess::startDetached("/bin/kill", {QString::number(pid)});
     };
 
     for (int i = 0; i < insts.size(); ++i) {
