@@ -35,10 +35,15 @@ jobs:
         LD_PRELOAD=$PWD/joyfilter.so python3 -c "open('/tmp/passthrough','w').close()"
         echo "shim test: OK"
 
-    - name: Shell lint
+    - name: Scripts lint
       run: |
-        for f in bin/*; do bash -n "$f"; done
-        python3 -m py_compile bin/mcpe-pads
+        for f in bin/*; do
+          case "$(head -c 20 "$f" | head -1)" in
+            "#!/usr/bin/env bash"|\#!*/bash) bash -n "$f" ;;
+            *python*) python3 -m py_compile "$f" ;;
+            *) echo "unknown shebang in $f"; head -1 "$f"; exit 1 ;;
+          esac
+        done
 
     - name: Package
       if: startsWith(github.ref, 'refs/tags/v')
