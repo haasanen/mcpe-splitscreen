@@ -52,6 +52,10 @@ jobs:
         cmake -G Ninja -B control-build control
         cmake --build control-build
 
+    - name: Build splitscreen mod + verifier
+      run: |
+        make -C mod
+        test -f mod/splitscreen-unlock.so && test -x mod/anchor-verify
     - name: GUI smoke test (offscreen)
       run: QT_QPA_PLATFORM=offscreen ./control-build/mcpe-control --check
 
@@ -69,6 +73,9 @@ jobs:
         mkdir -p pkg/bin pkg/shim pkg/conf
         cp bin/* pkg/bin/; cp shim/joyfilter.so pkg/shim/; cp conf/* pkg/conf/
         cp control-build/mcpe-control pkg/bin/mcpe-control
+        mkdir -p pkg/mods
+        cp mod/splitscreen-unlock.so pkg/mods/splitscreen-unlock.so
+        cp mod/anchor-verify pkg/bin/anchor-verify
         VERSION=${GITHUB_REF_NAME}
         cp conf/common-example.conf pkg/conf/common.conf.example
         cp conf/instance-example.conf pkg/conf/instance-example.conf

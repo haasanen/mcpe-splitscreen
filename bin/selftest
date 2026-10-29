@@ -10,7 +10,7 @@ ok()   { echo "  PASS  $*"; }
 bad()  { echo "  FAIL  $*"; fails=$((fails+1)); }
 warn() { echo "  WARN  $*"; warns=$((warns+1)); }
 
-echo "[1/5] joyfilter shim enforcement"
+echo "[1/7] joyfilter shim enforcement"
 if [ ! -f "$HERE/shim/joyfilter.so" ]; then
   bad "shim/joyfilter.so missing (run bin/setup-pc or use the release tarball)"
 else
@@ -27,11 +27,11 @@ EOF
   [ "$R" = gated ] && ok "non-allowlisted /dev/input open denied (EACCES)" || bad "shim not enforcing (got: $R)"
 fi
 
-echo "[2/5] gamepads visible to the harness"
+echo "[2/7] gamepads visible to the harness"
 PADS=$(python3 "$HERE/bin/mcpe-pads" 2>/dev/null)
 if [ -n "$PADS" ]; then ok "pads found:"; echo "$PADS" | sed 's/^/        /'; else warn "no gamepads detected — plug one in and re-run"; fi
 
-echo "[3/5] mcpelauncher-client"
+echo "[3/7] mcpelauncher-client"
 BIN=${MCPE_CLIENT_BIN:-$MCPE_HOME/bin/mcpelauncher-client}
 if [ -x "$BIN" ]; then
   OUT=$(SDL_VIDEODRIVER=dummy "$BIN" --version 2>/dev/null || true)
@@ -40,14 +40,14 @@ else
   bad "client binary missing ($BIN) — run bin/setup-pc"
 fi
 
-echo "[4/5] bedrock server"
+echo "[4/7] bedrock server"
 if [ -x "$HERE/server/bedrock_server" ]; then
   ok "server installed ($(cat "$HERE/server/version.txt" 2>/dev/null || echo version unknown))"
 else
   warn "server not installed yet — run bin/bds-update && bin/bds-run"
 fi
 
-echo "[5/5] instance configs"
+echo "[5/7] instance configs"
 found=0
 for f in "$HERE"/conf/instance-*.conf; do
   [ -f "$f" ] || continue
@@ -64,7 +64,20 @@ for f in "$HERE"/conf/instance-*.conf; do
 done
 [ "$found" = 0 ] && warn "no instance-*.conf yet (copy conf/instance-example.conf)"
 
-echo "[6/6] GUI control panel"
+echo "[6/7] splitscreen mod"
+if [ -f "$HERE/mods/splitscreen-unlock.so" ]; then
+  ok "mod present: mods/splitscreen-unlock.so"
+  LIB=$(find -L "$HOME/.local/share/mcpelauncher/versions" -path '*/lib/x86_64/libminecraftpe.so' 2>/dev/null | sort -V | tail -1 || true)
+  if [ -x "$HERE/bin/anchor-verify" ] && [ -n "$LIB" ]; then
+    R2=$("$HERE/bin/anchor-verify" "$LIB" 2>&1); RC=$?
+    [ $RC -eq 0 ] && ok "anchors verified on installed game: $R2" || bad "anchors FAILED on $LIB: $R2"
+  else
+    warn "anchor-verify needs the downloaded game binary (run setup-pc + launcher download first)"
+  fi
+else
+  warn "mods/splitscreen-unlock.so not present (comes in the release tarball)"
+fi
+echo "[7/7] GUI control panel"
 if [ -x "$HERE/bin/mcpe-control" ]; then
   R=$(QT_QPA_PLATFORM=offscreen "$HERE/bin/mcpe-control" --check 2>&1) && ok "GUI runs: $R" || bad "GUI failed: $R"
   command -v xdotool >/dev/null && ok "xdotool present (window auto-tiling works)" || warn "xdotool missing — install it or windows will not auto-tile: sudo apt install xdotool"

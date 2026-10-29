@@ -36,6 +36,15 @@ curl -fL -o "$MCPE_HOME/bin/gamecontrollerdb.txt" \
 [ -f "$MCPE_HOME/bin/mcpelauncher-client" ] && echo "installed: $MCPE_HOME/bin/mcpelauncher-client"
 "$MCPE_HOME/bin/mcpelauncher-client" --version 2>/dev/null | head -1 || true
 
+# splitscreen mod -> each instance's launcher data dir (mods/ sits beside data)
+if [ -f "$HERE/mods/splitscreen-unlock.so" ]; then
+  for p in 1 2 3 4; do
+    mkdir -p "$MCPE_HOME/instances/p$p/data/mods"
+    cp "$HERE/mods/splitscreen-unlock.so" "$MCPE_HOME/instances/p$p/data/mods/" 2>/dev/null || true
+  done
+  echo "splitscreen mod installed into instance mods/ (console splitscreen unlock)"
+fi
+
 # desktop entry for the GUI control panel (what the players actually launch)
 if [ -x "$HERE/bin/mcpe-control" ]; then
   mkdir -p "$MCPE_HOME/bin"

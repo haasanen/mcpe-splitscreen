@@ -6,3 +6,5 @@ pkg/
 mcpe-splitscreen-*.tar.gz
 .selftest-home
 control-build/
+mod/anchor-verify
+mod/splitscreen-unlock.so

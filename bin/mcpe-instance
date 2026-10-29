@@ -28,6 +28,9 @@ PAD_REAL=$(realpath "$PAD" 2>/dev/null || echo "$PAD")
 ALLOW="$PAD,$PAD_REAL${PAD_EXTRA:+,$PAD_EXTRA}"
 DATA=$MCPE_HOME/instances/$NAME
 mkdir -p "$DATA/data" "$DATA/cache" "$DATA/logs"
+# tell the splitscreen mod which game version we run (allowlist safety)
+GAMEVER=$(ls "$DATA/data/versions" 2>/dev/null | grep -E '^[0-9]' | sort -V | tail -1 || true)
+[ -n "$GAMEVER" ] && export MCPE_SS_VERSION="$GAMEVER"
 ARGS=(--data-dir "$DATA/data" --cache-dir "$DATA/cache")
 [ -n "$GAME_DIR" ] && ARGS+=(--game-dir "$GAME_DIR")
 if [ -n "$GEOM" ]; then ARGS+=(--width "${GEOM%%x*}" --height "${GEOM##*x}"); fi
