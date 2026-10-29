@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 haasanen — SPDX-License-Identifier: GPL-3.0-only
+"""probe-game-binary — static RE probe of the licensed Minecraft Bedrock binary.
+
+Answers one question: does the x86_64 Android libminecraftpe.so we run contain
+split-screen / multi-local-player code (present-but-gated), or is the feature
+console-build-only?
+
+Run on the PC after the game was downloaded via the launcher's Google sign-in:
+    bin/probe-game-binary [path/to/libminecraftpe.so]
+No game path needed if MCPE_GAME_DIR holds the game data.
+"""
+import mmap, os, re, subprocess, sys
+
+TOKENS = [
+    # multi-viewport rendering plumbing (known PRESENT: launcher dlsym's it)
+    (b'setViewportWithFullScissor', 'engine: multi-viewport RenderContext entry'),
+    (b'ViewportInfo', 'engine: viewport descriptor'),
+    (b'RenderContext', 'engine: render context'),
+    # console split-screen orchestration — the thing we want to know about
+    (b'Splitscreen', 'CONSOLE: splitscreen orchestration'),
+    (b'SplitScreen', 'CONSOLE: splitscreen orchestration'),
+    (b'splitscreen', 'CONSOLE: splitscreen orchestration'),
+    (b'SecondPlayer', 'CONSOLE: second-player join flow'),
+    (b'secondplayer', 'CONSOLE: second-player join flow'),
+    (b'screen_position', 'CONSOLE: per-player HUD placement'),
+    # input -> player binding (what console "choose profile for this controller" uses)
+    (b'InputMapping', 'input mapping subsystem'),
+    (b'SplitScreenController', 'CONSOLE: per-viewport input controller'),
+]
+
+DEFAULTS = [
+    os.environ.get('MCPE_GAME_DIR', '') + '/libminecraftpe.so',
+    os.path.expanduser('~/.local/share/mcpe-splitscreen/game/libminecraftpe.so'),
+    os.path.expanduser('~/.minecraft-linux/libminecraftpe.so'),
+    os.path.expanduser('~/.var/app/io.github.mcalgs.mcpelauncher/data/mcpelauncher/libminecraftpe.so'),
+]
+
+
+def main():
+    path = sys.argv[1] if len(sys.argv) > 1 else next((p for p in DEFAULTS if p and os.path.isfile(p)), None)
+    if not path:
+        sys.exit('libminecraftpe.so not found — pass its path or set MCPE_GAME_DIR.\n'
+                 'It lives in the game data dir after the launcher downloads the game:\n  '
+                 + '\n  '.join(p for p in DEFAULTS if p))
+    size = os.path.getsize(path)
+    print(f'probing {path} ({size/1e6:.0f} MB)')
+
+    hits = {t: 0 for t, _ in TOKENS}
+    with open(path, 'rb') as f:
+        m = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        for tok, _ in TOKENS:
+            i, c = 0, 0
+            while True:
+                i = m.find(tok, i)
+                if i < 0:
+                    break
+                c += 1
+                i += 1
+                if c > 200:
+                    break
+            hits[tok] = c
+        m.close()
+
+    # exported dynamic symbols (if binutils present)
+    dyn = {}
+    try:
+        out = subprocess.run(['nm', '-D', '--defined-only', path], capture_output=True, text=True, timeout=60).stdout
+        for tok, label in TOKENS:
+            t = tok.decode()
+            dyn[t] = sum(1 for line in out.splitlines() if t in line)
+    except FileNotFoundError:
+        print('(nm not installed — raw byte scan only; apt install binutils for symbol view)')
+
+    print()
+    for tok, label in TOKENS:
+        t = tok.decode()
+        total = hits[tok] + dyn.get(t, 0)
+        mark = 'FOUND' if total else 'ABSENT'
+        print(f'  [{mark:6s}] {t:32s} x{total:<5} {label}')
+
+    console = sum(v for k, v in list(hits.items()) + list(dyn.items()) if k in (b'Splitscreen', b'SplitScreen', b'splitscreen', b'SecondPlayer', b'secondplayer', b'SplitScreenController', 'Splitscreen', 'SplitScreen', 'splitscreen', 'SecondPlayer', 'secondplayer', 'SplitScreenController'))
+    engine = hits[b'setViewportWithFullScissor'] + dyn.get('setViewportWithFullScissor', 0)
+    print()
+    if console:
+        print('VERDICT: split-screen code IS PRESENT in this build — likely gated, not absent.')
+        print('Next: Ghidra session (mirrored at gitea) to locate the gate + caller chain.')
+    elif engine:
+        print('VERDICT: multi-viewport ENGINE plumbing present, but NO splitscreen orchestration code found.')
+        print('The Android build compiles the renderer without the console join/multi-player layer.')
+        print('Path forward stays: multi-instance + external input isolation (our harness),')
+        print('OR an Amethyst-style client mod driving multiple viewports via the engine entry points.')
+    else:
+        print('VERDICT: no engine plumbing found either — wrong file or stripped build?')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

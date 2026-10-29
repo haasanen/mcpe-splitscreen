@@ -45,18 +45,30 @@ jobs:
           esac
         done
 
+    - name: Build GUI control panel
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qt6-base-dev
+        cmake -G Ninja -B control-build control
+        cmake --build control-build
+
+    - name: GUI smoke test (offscreen)
+      run: QT_QPA_PLATFORM=offscreen ./control-build/mcpe-control --check
+
     - name: Integration test (setup-pc + selftest)
       run: |
         MCPE_HOME=$PWD/.selftest-home bash bin/setup-pc
+        cp control-build/mcpe-control bin/mcpe-control
         MCPE_HOME=$PWD/.selftest-home bash bin/selftest
 
     - name: Package
       if: startsWith(github.ref, 'refs/tags/v')
       run: |
         rm -rf bin/__pycache__
-        rm -f joyfilter.so
+        rm -f joyfilter.so bin/mcpe-control
         mkdir -p pkg/bin pkg/shim pkg/conf
         cp bin/* pkg/bin/; cp shim/joyfilter.so pkg/shim/; cp conf/* pkg/conf/
+        cp control-build/mcpe-control pkg/bin/mcpe-control
         VERSION=${GITHUB_REF_NAME}
         cp conf/common-example.conf pkg/conf/common.conf.example
         cp conf/instance-example.conf pkg/conf/instance-example.conf

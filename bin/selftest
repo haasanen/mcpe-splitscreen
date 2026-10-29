@@ -64,6 +64,14 @@ for f in "$HERE"/conf/instance-*.conf; do
 done
 [ "$found" = 0 ] && warn "no instance-*.conf yet (copy conf/instance-example.conf)"
 
+echo "[6/6] GUI control panel"
+if [ -x "$HERE/bin/mcpe-control" ]; then
+  R=$(QT_QPA_PLATFORM=offscreen "$HERE/bin/mcpe-control" --check 2>&1) && ok "GUI runs: $R" || bad "GUI failed: $R"
+  command -v xdotool >/dev/null && ok "xdotool present (window auto-tiling works)" || warn "xdotool missing — install it or windows will not auto-tile: sudo apt install xdotool"
+else
+  warn "bin/mcpe-control not present (comes in the release tarball)"
+fi
+
 echo
 echo "selftest: $fails fail(s), $warns warning(s)"
 [ "$fails" = 0 ]

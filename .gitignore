@@ -5,3 +5,4 @@ server/
 pkg/
 mcpe-splitscreen-*.tar.gz
 .selftest-home
+control-build/

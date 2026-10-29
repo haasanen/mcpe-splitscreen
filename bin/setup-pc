@@ -35,4 +35,23 @@ curl -fL -o "$MCPE_HOME/bin/gamecontrollerdb.txt" \
 [ -f "$MCPE_HOME/conf/common.conf" ] || { mkdir -p "$MCPE_HOME/conf"; cp "$HERE/conf/common-example.conf" "$MCPE_HOME/conf/common.conf"; }
 [ -f "$MCPE_HOME/bin/mcpelauncher-client" ] && echo "installed: $MCPE_HOME/bin/mcpelauncher-client"
 "$MCPE_HOME/bin/mcpelauncher-client" --version 2>/dev/null | head -1 || true
-echo "next: plug a gamepad, run bin/mcpe-pads, fill conf/instance-p1.conf, then bin/mcpe-instance p1"
+
+# desktop entry for the GUI control panel (what the players actually launch)
+if [ -x "$HERE/bin/mcpe-control" ]; then
+  mkdir -p "$MCPE_HOME/bin"
+  cp "$HERE/bin/mcpe-control" "$MCPE_HOME/bin/mcpe-control" 2>/dev/null || true
+  mkdir -p "$HOME/.local/share/applications"
+  cat > "$HOME/.local/share/applications/mcpe-control.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Minecraft 4-Player Splitscreen
+Comment=Launch four Minecraft instances, one gamepad each
+Exec=$MCPE_HOME/bin/mcpe-control
+Icon=applications-games
+Terminal=false
+Categories=Game;
+EOF
+  echo "desktop entry installed: 'Minecraft 4-Player Splitscreen' in the games menu"
+fi
+command -v xdotool >/dev/null || echo "NOTE: install xdotool for window auto-tiling: sudo apt install xdotool"
+echo "next: open 'Minecraft 4-Player Splitscreen' from the menu (or run bin/mcpe-control), pick each player's gamepad, press START ALL FOUR"

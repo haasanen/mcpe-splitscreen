@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 haasanen — SPDX-License-Identifier: GPL-3.0-only
+"""mcpe-menu — interactive controller/instance menu for the splitscreen harness.
+
+Assign a physical gamepad to each of up to four Minecraft instances, set window
+size, start/stop instances and the Bedrock server, all from the terminal.
+
+Run:  bin/mcpe-menu          (interactive, curses)
+      bin/mcpe-menu --check  (non-interactive self-check printout)
+"""
+import curses, os, re, signal, subprocess, sys, glob, time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+HOME = os.environ.get('MCPE_HOME', os.path.expanduser('~/.local/share/mcpe-splitscreen'))
+CONF = os.path.join(ROOT, 'conf')
+INST = os.path.join(HOME, 'instances')
+INSTANCES = ['p1', 'p2', 'p3', 'p4']
+
+
+# ---------- pads ----------
+def pads():
+    """Return [(stable_path, name, event_node)] preferring by-id joystick paths."""
+    byid = {}
+    for link in glob.glob('/dev/input/by-id/*'):
+        byid.setdefault(os.path.realpath(link), []).append(link)
+    out = []
+    for ev in sorted(glob.glob('/sys/class/input/event*')):
+        try:
+            if int(open(os.path.join(ev, 'capabilities', 'abs')).read().split(':')[0], 16) == 0:
+                continue
+        except Exception:
+            continue
+        node = os.path.join('/dev/input', os.path.basename(ev))
+        try:
+            name = open(os.path.join(ev, 'device', 'name')).read().strip()
+        except Exception:
+            name = '?'
+        ids = byid.get(node, [])
+        stable = next((i for i in ids if i.endswith('-joystick')), ids[0] if ids else node)
+        out.append((stable, name, node))
+    return out
+
+
+# ---------- instance configs ----------
+def conf_path(name):
+    return os.path.join(CONF, f'instance-{name}.conf')
+
+
+def read_conf(name):
+    cfg = {}
+    try:
+        for line in open(conf_path(name)):
+            m = re.match(r'^([A-Z_]+)=(.*)$', line.strip())
+            if m:
+                cfg[m.group(1)] = m.group(2)
+    except FileNotFoundError:
+        pass
+    return cfg
+
+
+def write_conf(name, cfg):
+    os.makedirs(CONF, exist_ok=True)
+    with open(conf_path(name), 'w') as f:
+        for k, v in cfg.items():
+            f.write(f'{k}={v}\n')
+
+
+def pidfile(name):
+    return os.path.join(INST, name, 'pid')
+
+
+def running(name):
+    try:
+        pid = int(open(pidfile(name)).read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        return None
+
+
+def start_instance(name):
+    cfg = read_conf(name)
+    if not cfg.get('MCPE_PAD'):
+        return 'no pad assigned (press p)'
+    os.makedirs(os.path.join(INST, name), exist_ok=True)
+    p = subprocess.Popen([os.path.join(ROOT, 'bin', 'mcpe-instance'), name],
+                         start_new_session=True,
+                         stdout=open(os.path.join(INST, name, 'console.log'), 'a'),
+                         stderr=subprocess.STDOUT)
+    open(pidfile(name), 'w').write(str(p.pid))
+    return f'{name} started (pid {p.pid})'
+
+
+def stop_instance(name):
+    pid = running(name)
+    if not pid:
+        return f'{name} not running'
+    try:
+        os.killpg(pid, signal.SIGTERM)  # start_new_session -> pgid == pid
+    except ProcessLookupError:
+        pass
+    try:
+        os.remove(pidfile(name))
+    except FileNotFoundError:
+        pass
+    return f'{name} stopped'
+
+
+def server_running():
+    try:
+        pid = int(open(os.path.join(ROOT, 'server', 'pid')).read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        return None
+
+
+def start_server():
+    if not os.access(os.path.join(ROOT, 'server', 'bedrock_server'), os.X_OK):
+        return 'server not installed (run bin/bds-update first)'
+    os.makedirs(os.path.join(ROOT, 'server'), exist_ok=True)
+    p = subprocess.Popen(['./bedrock_server'], cwd=os.path.join(ROOT, 'server'),
+                         start_new_session=True,
+                         stdout=open(os.path.join(ROOT, 'server', 'console.log'), 'a'),
+                         stderr=subprocess.STDOUT)
+    open(os.path.join(ROOT, 'server', 'pid'), 'w').write(str(p.pid))
+    return f'server started (pid {p.pid})'
+
+
+def stop_server():
+    pid = server_running()
+    if not pid:
+        return 'server not running'
+    try:
+        os.killpg(pid, signal.SIGINT)  # graceful BDS shutdown
+    except ProcessLookupError:
+        pass
+    return 'server stopping'
+
+
+# ---------- interactive UI ----------
+HELP = """1-4:select instance  p:assign pad  g:geometry  s:start  k:stop
+S:server start/stop  A:start all  x:stop all  q:quit"""
+
+
+def ui(stdscr):
+    curses.curs_set(0)
+    sel = 0
+    msg = 'welcome — plug in gamepads and assign them with p'
+    while True:
+        stdscr.erase()
+        h, w = stdscr.getmaxyx()
+        srv = server_running()
+        lines = []
+        lines.append(f'MCPE splitscreen menu   server: {"RUNNING pid " + str(srv) if srv else "stopped"}')
+        lines.append('')
+        for i, name in enumerate(INSTANCES):
+            cfg = read_conf(name)
+            pid = running(name)
+            pad = cfg.get('MCPE_PAD', '-')
+            pad = pad.replace('/dev/input/by-id/', '')
+            geom = cfg.get('MCPE_GEOM', '-')
+            state = f'pid {pid}' if pid else ('ready' if cfg.get('MCPE_PAD') else 'UNASSIGNED')
+            mark = '>' if i == sel else ' '
+            lines.append(f'{mark} {name}  [{state:14s}]  geom {geom:10s}  pad: {pad[:40]}')
+        lines.append('')
+        lines.append('gamepads detected:')
+        plist = pads()
+        if not plist:
+            lines.append('  (none — plug one in)')
+        for stable, pname, node in plist[:8]:
+            used = next((n for n in INSTANCES if read_conf(n).get('MCPE_PAD') == stable), None)
+            tag = f'-> {used}' if used else 'free'
+            lines.append(f'  [{tag:7s}] {pname[:28]:28s} {stable.replace("/dev/input/by-id/", "")}')
+        lines.append('')
+        lines.append(HELP)
+        lines.append(f'  {msg[:max(w - 4, 10)]}')
+        for y, line in enumerate(lines[:h - 1]):
+            try:
+                stdscr.addstr(y, 0, line[:w - 1])
+            except curses.error:
+                pass
+        stdscr.refresh()
+        ch = stdscr.getch()
+
+        if ch in (ord('q'), ord('Q')):
+            return
+        elif ch in (c for c in b'1234'):
+            sel = ch - ord('1')
+        elif ch in (curses.KEY_UP, ord('k')) and sel > 0 and ch != ord('k'):
+            sel -= 1
+        elif ch in (curses.KEY_DOWN, ord('j')):
+            sel = min(sel + 1, len(INSTANCES) - 1)
+        elif ch == ord('p'):
+            msg = pick_pad(stdscr, sel)
+        elif ch == ord('g'):
+            msg = set_geometry(stdscr, sel)
+        elif ch == ord('s'):
+            msg = start_instance(INSTANCES[sel])
+        elif ch in (ord('S'),):
+            msg = stop_server() if server_running() else start_server()
+        elif ch == ord('A'):
+            msgs = []
+            if not server_running():
+                msgs.append(start_server())
+                time.sleep(1)
+            for n in INSTANCES:
+                if read_conf(n).get('MCPE_PAD'):
+                    msgs.append(start_instance(n))
+                    time.sleep(2)
+            msg = '; '.join(m for m in msgs if m)
+        elif ch == ord('x'):
+            msg = '; '.join([stop_instance(n) for n in INSTANCES] + [stop_server()])
+        elif ch in (ord('K'),):
+            msg = stop_instance(INSTANCES[sel])
+
+
+def pick_pad(stdscr, sel):
+    name = INSTANCES[sel]
+    plist = pads()
+    if not plist:
+        return 'no gamepads detected'
+    curses.curs_set(0)
+    cur = 0
+    while True:
+        stdscr.erase()
+        stdscr.addstr(0, 0, f'assign a pad to {name} (enter=choose, esc=cancel)')
+        for i, (stable, pname, node) in enumerate(plist):
+            try:
+                stdscr.addstr(2 + i, 0, ('> ' if i == cur else '  ') + f'{pname[:30]:30s} {stable.replace("/dev/input/by-id/", "")}')
+            except curses.error:
+                break
+        stdscr.refresh()
+        ch = stdscr.getch()
+        if ch == 27:
+            return 'cancelled'
+        elif ch == curses.KEY_UP and cur > 0:
+            cur -= 1
+        elif ch == curses.KEY_DOWN and cur < len(plist) - 1:
+            cur += 1
+        elif ch in (10, 13):
+            cfg = read_conf(name)
+            cfg['MCPE_PAD'] = plist[cur][0]
+            cfg.setdefault('MCPE_GEOM', '960x540')
+            write_conf(name, cfg)
+            return f'{name} = {plist[cur][1]}'
+
+
+def set_geometry(stdscr, sel):
+    name = INSTANCES[sel]
+    curses.echo()
+    curses.curs_set(1)
+    stdscr.addstr(0, 0, f'geometry for {name} [WxH, current {read_conf(name).get("MCPE_GEOM", "-")}]: ')
+    stdscr.clrtoeol()
+    raw = stdscr.getstr(0, 40, 12).decode()
+    curses.noecho()
+    curses.curs_set(0)
+    if not re.match(r'^\d{3,5}x\d{3,5}$', raw):
+        return 'geometry must look like 1920x1080'
+    cfg = read_conf(name)
+    cfg['MCPE_GEOM'] = raw
+    write_conf(name, cfg)
+    return f'{name} geometry = {raw}'
+
+
+def check():
+    print('server:', 'running' if server_running() else 'stopped')
+    for n in INSTANCES:
+        cfg = read_conf(n)
+        print(f'  {n}: pad={cfg.get("MCPE_PAD", "-")} geom={cfg.get("MCPE_GEOM", "-")} state={"running" if running(n) else "stopped"}')
+    print('pads:')
+    for stable, pname, node in pads():
+        print(f'  {pname[:30]:30s} {stable}')
+
+
+if __name__ == '__main__':
+    if '--check' in sys.argv:
+        check()
+        sys.exit(0)
+    try:
+        curses.wrapper(ui)
+    except KeyboardInterrupt:
+        pass
