@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026 haasanen — SPDX-License-Identifier: GPL-3.0-only
+# mcpe-instance NAME — launch one Bedrock client instance with exactly one assigned gamepad.
+#
+# Reads conf/instance-NAME.conf (KEY=VALUE):
+#   MCPE_PAD       path to the gamepad: /dev/input/by-id/...-joystick or /dev/input/eventN (required)
+#   MCPE_PAD_EXTRA optional comma-separated extra /dev/input nodes this instance may open (e.g. extra button pad)
+#   MCPE_GEOM      WxH (window size)
+# Shared config conf/common.conf:
+#   MCPE_CLIENT_BIN  path to mcpelauncher-client (default: $MCPE_HOME/bin/mcpelauncher-client)
+#   MCPE_GAME_DIR    shared read-only game dir (assets+natives)
+#   MCPE_HOME        harness root (default ~/.local/share/mcpe-splitscreen)
+set -euo pipefail
+[ $# -ge 1 ] || { echo "usage: mcpe-instance NAME [extra client args...]" >&2; exit 2; }
+NAME=$1; shift
+HERE=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+MCPE_HOME=${MCPE_HOME:-$HOME/.local/share/mcpe-splitscreen}
+conf() { [ -f "$HERE/conf/$1" ] && sed -n "s/^$2=//p" "$HERE/conf/$1" | tail -1; }
+PAD=$(conf "instance-$NAME.conf" MCPE_PAD || true); PAD=${MCPE_PAD:-$PAD}
+PAD_EXTRA=$(conf "instance-$NAME.conf" MCPE_PAD_EXTRA || true)
+GEOM=$(conf "instance-$NAME.conf" MCPE_GEOM || true); GEOM=${MCPE_GEOM:-$GEOM}
+BIN=${MCPE_CLIENT_BIN:-$(conf common.conf MCPE_CLIENT_BIN || true)}
+BIN=${BIN:-$MCPE_HOME/bin/mcpelauncher-client}
+GAME_DIR=${MCPE_GAME_DIR:-$(conf common.conf MCPE_GAME_DIR || true)}
+[ -n "$PAD" ] || { echo "instance $NAME: MCPE_PAD not set (see conf/instance-$NAME.conf; list pads with mcpe-pads)" >&2; exit 2; }
+# resolve by-id symlink to the event node so the allowlist covers both spellings
+PAD_REAL=$(realpath "$PAD" 2>/dev/null || echo "$PAD")
+ALLOW="$PAD,$PAD_REAL${PAD_EXTRA:+,$PAD_EXTRA}"
+DATA=$MCPE_HOME/instances/$NAME
+mkdir -p "$DATA/data" "$DATA/cache" "$DATA/logs"
+ARGS=(--data-dir "$DATA/data" --cache-dir "$DATA/cache")
+[ -n "$GAME_DIR" ] && ARGS+=(--game-dir "$GAME_DIR")
+if [ -n "$GEOM" ]; then ARGS+=(--width "${GEOM%%x*}" --height "${GEOM##*x}"); fi
+echo "instance $NAME: pad=$PAD_REAL allowed=$ALLOW"
+exec env LD_PRELOAD="$HERE/shim/joyfilter.so${LD_PRELOAD:+:$LD_PRELOAD}" \
+     MCPE_JOY_ALLOWED="$ALLOW" \
+     "$BIN" "${ARGS[@]}" "$@" 2>&1 | tee -a "$DATA/logs/run.log"

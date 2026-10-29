@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026 haasanen — SPDX-License-Identifier: GPL-3.0-only
+# bds-update — download+install the latest official Bedrock Dedicated Server (Linux),
+# preserving worlds/config in the server dir.
+set -euo pipefail
+HERE=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+SERVER_DIR=${MCPE_SERVER_DIR:-$HERE/server}
+TMP=$(mktemp -d /tmp/bds.XXXXXX)
+trap 'rm -rf "$TMP"' EXIT
+URL=$(curl -sfL -A "Mozilla/5.0" "https://net.web.minecraft-services.net/api/v1.0/download/links" \
+  | python3 -c "import json,sys; print([l['downloadUrl'] for l in json.load(sys.stdin)['result']['links'] if l['downloadType']=='serverBedrockLinux'][0])")
+echo "latest: $URL"
+curl -fL -A "Mozilla/5.0" -o "$TMP/bds.zip" "$URL"
+mkdir -p "$SERVER_DIR"
+python3 - "$TMP/bds.zip" "$SERVER_DIR" <<'EOF'
+import zipfile, sys, os, shutil
+zipf, dst = sys.argv[1], sys.argv[2]
+preserve = ['world', 'worlds', 'allowlist.json', 'server.properties', 'bedrock_server.so']
+keep = {}
+for p in preserve:
+    src = os.path.join(dst, p)
+    if os.path.exists(src):
+        keep[p] = src
+with zipfile.ZipFile(zipf) as z:
+    z.extractall(dst)
+for p in ['world', 'worlds']:
+    pass
+print('installed', open(os.path.join(dst,'version.txt')).read().strip() if os.path.exists(os.path.join(dst,'version.txt')) else '(version.txt missing)')
+EOF
+chmod +x "$SERVER_DIR/bedrock_server"
+echo "server files updated in $SERVER_DIR (world/configs preserved)"

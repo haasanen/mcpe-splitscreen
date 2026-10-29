@@ -1,0 +1,59 @@
+name: build
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build shim
+      run: gcc -shared -fPIC -O2 -Wall -Wextra -o joyfilter.so shim/joyfilter.c -ldl
+
+    - name: Shim functional test
+      run: |
+        set -e
+        # blocked /dev/input open must fail with EACCES when a filter is set
+        LD_PRELOAD=$PWD/joyfilter.so MCPE_JOY_ALLOWED=/tmp/touch-me python3 - <<'EOF'
+        import os, sys
+        open('/tmp/touch-me','w').close()
+        try:
+            os.open('/dev/input/event99', os.O_RDONLY)
+            sys.exit('expected EACCES, open succeeded')
+        except OSError as e:
+            assert e.errno == 13, f'expected EACCES(13), got {e.errno}'
+        fd = os.open('/tmp/touch-me', os.O_RDONLY); os.close(fd)
+        EOF
+        # non-input paths untouched
+        LD_PRELOAD=$PWD/joyfilter.so python3 -c "open('/tmp/passthrough','w').close()"
+        echo "shim test: OK"
+
+    - name: Shell lint
+      run: |
+        for f in bin/*; do bash -n "$f"; done
+        python3 -m py_compile bin/mcpe-pads
+
+    - name: Package
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        mkdir -p pkg/bin pkg/shim pkg/conf
+        cp bin/* pkg/bin/; cp joyfilter.so pkg/shim/; cp conf/* pkg/conf/
+        VERSION=${GITHUB_REF_NAME}
+        cp conf/common-example.conf pkg/conf/common.conf.example
+        cp conf/instance-example.conf pkg/conf/instance-example.conf
+        tar czf "mcpe-splitscreen-${VERSION}.tar.gz" -C pkg .
+        echo "PKG=mcpe-splitscreen-${VERSION}.tar.gz" >> $GITHUB_ENV
+
+    - name: Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: mcpe-splitscreen-*.tar.gz
+        fail_on_unmatched_files: true

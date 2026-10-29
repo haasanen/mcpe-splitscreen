@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 haasanen — SPDX-License-Identifier: GPL-3.0-only
+# mcpe-pads — list gamepads with their stable by-id paths (what to put in MCPE_PAD).
+import os, sys, glob
+
+def has_abs(devpath):
+    try:
+        return int(open(os.path.join(devpath, 'capabilities', 'abs')).read().split(':')[0], 16) > 0
+    except Exception:
+        return False
+
+byid = {}
+for link in glob.glob('/dev/input/by-id/*'):
+    tgt = os.path.realpath(link)
+    byid.setdefault(tgt, []).append(link)
+
+pads = []
+for ev in sorted(glob.glob('/sys/class/input/event*')):
+    devnode = os.path.join('/dev/input', os.path.basename(ev))
+    if not has_abs(ev):
+        continue
+    name = ''
+    try:
+        name = open(os.path.join(ev, 'device', 'name')).read().strip()
+    except Exception:
+        pass
+    ids = byid.get(devnode, [])
+    pads.append((devnode, name, ids))
+
+for devnode, name, ids in pads:
+    stable = next((i for i in ids if i.endswith('-joystick')), ids[0] if ids else None)
+    print(f'{devnode:20s} {name[:40]:40s}')
+    for i in ids:
+        print(f'  -> {i}')
+    if not ids:
+        print('  !! no stable by-id path; use event node (can renumber) or plug into a fixed USB port')
+if not pads:
+    print('no gamepads detected', file=sys.stderr)
