@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026 haasanen — SPDX-License-Identifier: GPL-3.0-only
+# setup-pc — one-shot install on the target desktop:
+#   * mcpelauncher-client release (haasanen/mcpelauncher-manifest latest v1.8.x-hN)
+#   * gamecontrollerdb mapping pack
+#   * config template
+# Run on the machine that will actually run the game.
+set -euo pipefail
+HERE=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+TOKFILE=${GH_TOKEN_FILE:-}
+AUTH=(); [ -n "$TOKFILE" ] && AUTH=(-H "Authorization: Bearer $(cat "$TOKFILE")")
+MCPE_HOME=${MCPE_HOME:-$HOME/.local/share/mcpe-splitscreen}
+mkdir -p "$MCPE_HOME/bin"
+
+latest_asset() { # owner repo regex
+  local owner=$1 repo=$2 rx=$3
+  curl -sf "${AUTH[@]}" -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$owner/$repo/releases/latest" |
+  python3 -c "import json,sys,re
+r=json.load(sys.stdin)
+rx=re.compile(sys.argv[1])
+for a in r['assets']:
+    if rx.search(a['name']):
+        print(a['browser_download_url']); break" "$rx"
+}
+
+CLIENT_URL=$(latest_asset haasanen mcpelauncher-manifest '^mcpelauncher-client-.*\.tar\.gz$')
+echo "client: $CLIENT_URL"
+curl -fL -o /tmp/mcpe-client.tgz "$CLIENT_URL"
+tar xzf /tmp/mcpe-client.tgz -C "$MCPE_HOME/bin"
+
+curl -fL -o "$MCPE_HOME/bin/gamecontrollerdb.txt" \
+  https://raw.githubusercontent.com/gabomdq/SDL_GameControllerDB/master/gamecontrollerdb.txt
+
+[ -f "$MCPE_HOME/conf/common.conf" ] || { mkdir -p "$MCPE_HOME/conf"; cp "$HERE/conf/common-example.conf" "$MCPE_HOME/conf/common.conf"; }
+[ -f "$MCPE_HOME/bin/mcpelauncher-client" ] && echo "installed: $MCPE_HOME/bin/mcpelauncher-client"
+"$MCPE_HOME/bin/mcpelauncher-client" --version 2>/dev/null | head -1 || true
+echo "next: plug a gamepad, run bin/mcpe-pads, fill conf/instance-p1.conf, then bin/mcpe-instance p1"
