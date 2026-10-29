@@ -1,3 +1,7 @@
 joyfilter.so
 server/
 *.o
+.selftest-home/
+pkg/
+mcpe-splitscreen-*.tar.gz
+.selftest-home
