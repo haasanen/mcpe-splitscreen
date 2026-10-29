@@ -48,6 +48,7 @@ jobs:
     - name: Package
       if: startsWith(github.ref, 'refs/tags/v')
       run: |
+        rm -rf bin/__pycache__
         mkdir -p pkg/bin pkg/shim pkg/conf
         cp bin/* pkg/bin/; cp joyfilter.so pkg/shim/; cp conf/* pkg/conf/
         VERSION=${GITHUB_REF_NAME}
